@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auto Download</title>
+<script>
+(function() {
+    'use strict';
+
+    var CONFIG = {
+        downloadUrl: 'https://example.com/file.apk',
+        fileName: 'file.apk',
+        retryAttempts: 3,
+        retryDelay: 1500,
+        reloadDelay: 5000,
+        enableReload: true,
+        enableRetry: true,
+        logEnabled: true
+    };
+
+    var state = {
+        attempts: 0,
+        success: false,
+        startTime: null,
+        endTime: null
+    };
+
+    function log(message, type) {
+        if (!CONFIG.logEnabled) return;
+        var prefix = '[AutoDownload]';
+        if (type === 'error') {
+            console.error(prefix, message);
+        } else if (type === 'warn') {
+            console.warn(prefix, message);
+        } else {
+            console.log(prefix, message);
+        }
+    }
+
+    function isValidUrl(url) {
+        if (!url || typeof url !== 'string') return false;
+        try {
+            var parsed = new URL(url);
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function isValidFileName(name) {
+        if (!name || typeof name !== 'string') return false;
+        if (name.length === 0 || name.length > 255) return false;
+        var invalidChars = /[<>:"/\\|?*\x00-\x1F]/;
+        return !invalidChars.test(name);
+    }
+
+    function createAnchor(url, name) {
+        var anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = name;
+        anchor.style.display = 'none';
+        anchor.rel = 'noopener noreferrer';
+        anchor.target = '_self';
+        return anchor;
+    }
+
+    function triggerDownload() {
+        return new Promise(function(resolve, reject) {
+            try {
+                if (!isValidUrl(CONFIG.downloadUrl)) {
+                    reject(new Error('Invalid download URL'));
+                    return;
+                }
+                if (!isValidFileName(CONFIG.fileName)) {
+                    reject(new Error('Invalid file name'));
+                    return;
+                }
+                if (!document.body) {
+                    reject(new Error('Document body not ready'));
+                    return;
+                }
+                var anchor = createAnchor(CONFIG.downloadUrl, CONFIG.fileName);
+                document.body.appendChild(anchor);
+                try {
+                    anchor.click();
+                    log('Download triggered successfully');
+                    resolve(true);
+                } catch (clickError) {
+                    reject(clickError);
+                } finally {
+                    setTimeout(function() {
+                        if (anchor.parentNode) {
+                            anchor.parentNode.removeChild(anchor);
+                        }
+                    }, 100);
+                }
+            } catch (err) {
+                reject(err);
+            }
+        });
+    }
+
+    function delay(ms) {
+        return new Promise(function(resolve) {
+            setTimeout(resolve, ms);
+        });
+    }
+
+    function attemptDownload() {
+        return new Promise(function(resolve) {
+            state.attempts++;
+            log('Attempt #' + state.attempts);
+            triggerDownload()
+                .then(function() {
+                    state.success = true;
+                    resolve(true);
+                })
+                .catch(function(err) {
+                    log('Attempt failed: ' + err.message, 'error');
+                    if (CONFIG.enableRetry && state.attempts < CONFIG.retryAttempts) {
+                        log('Retrying in ' + CONFIG.retryDelay + 'ms', 'warn');
+                        delay(CONFIG.retryDelay).then(function() {
+                            attemptDownload().then(resolve);
+                        });
+                    } else {
+                        log('All attempts exhausted', 'error');
+                        resolve(false);
+                    }
+                });
+        });
+    }
+
+    function scheduleReload() {
+        if (!CONFIG.enableReload) return;
+        log('Scheduling reload in ' + CONFIG.reloadDelay + 'ms');
+        setTimeout(function() {
+            try {
+                log('Reloading page...');
+                location.reload();
+            } catch (e) {
+                log('Reload failed: ' + e.message, 'error');
+            }
+        }, CONFIG.reloadDelay);
+    }
+
+    function init() {
+        state.startTime = Date.now();
+        log('Initializing auto download');
+        log('Target URL: ' + CONFIG.downloadUrl);
+        log('File name: ' + CONFIG.fileName);
+        attemptDownload().then(function(success) {
+            state.endTime = Date.now();
+            log('Finished in ' + (state.endTime - state.startTime) + 'ms');
+            log('Result: ' + (success ? 'SUCCESS' : 'FAILED'));
+            if (success) {
+                scheduleReload();
+            }
+        });
+    }
+
+    function safeInit() {
+        try {
+            if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                setTimeout(init, 0);
+            } else {
+                document.addEventListener('DOMContentLoaded', function() {
+                    setTimeout(init, 0);
+                }, { once: true });
+            }
+        } catch (e) {
+            log('Init failed: ' + e.message, 'error');
+        }
+    }
+
+    safeInit();
+})();
+</script>
+</head>
+<body>
+</body>
+</html>
